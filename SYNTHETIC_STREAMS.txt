@@ -1,0 +1,29 @@
+The synthetic data streams configurations. To run these commands you will need to include the
+task and the classifier. For example, if you want to perform a 10-fold cross-validation on 
+LED_a using a hoeffding tree. 
+
+SAMPLE USAGE: 
+EvaluatePrequentialCV -l trees.HoeffdingTree -s (ConceptDriftStream -s generators.LEDGeneratorDrift -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 3) -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 5) -d (generators.LEDGeneratorDrift -d 7) -p 250000 -w 50) -p 250000 -w 50) -p 250000 -w 50) -e BasicClassificationPerformanceEvaluator -i 1000000 -f 1000000
+
+THE SYNTHETIC DATA STREAMS CONFIGURATIONS: 
+
+LED_a
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 1)   -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 3) -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 5)  -d (generators.LEDGeneratorDrift -d 7) -w 50 -p 250000 ) -w 50 -p 250000 ) -w 50 -p 250000)
+LED_g
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 1)   -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 3) -d (ConceptDriftStream -s (generators.LEDGeneratorDrift -d 5)  -d (generators.LEDGeneratorDrift -d 7) -w 50000 -p 250000 ) -w 50000 -p 250000 ) -w 50000 -p 250000)
+SEA_a
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.SEAGenerator -f 1) -d (ConceptDriftStream -s (generators.SEAGenerator -f 2) -d (ConceptDriftStream -s (generators.SEAGenerator )   -d (generators.SEAGenerator -f 4) -w 50  -p 250000 ) -w 50  -p 250000 ) -w 50 -p 250000)
+SEA_g
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.SEAGenerator -f 1) -d (ConceptDriftStream -s (generators.SEAGenerator -f 2) -d (ConceptDriftStream -s (generators.SEAGenerator )   -d (generators.SEAGenerator -f 4) -w 50000  -p 250000 ) -w 50000  -p 250000 ) -w 50000 -p 250000)
+AGR_a
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.AgrawalGenerator -f 1) -d (ConceptDriftStream -s (generators.AgrawalGenerator -f 2) -d (ConceptDriftStream -s (generators.AgrawalGenerator )   -d (generators.AgrawalGenerator -f 4) -w 50 -p 250000 ) -w 50 -p 250000 ) -w 50 -p 250000)
+AGR_g
+-i 1000000 -f 1000000 -s (ConceptDriftStream -s (generators.AgrawalGenerator -f 1) -d (ConceptDriftStream -s (generators.AgrawalGenerator -f 2) -d (ConceptDriftStream -s (generators.AgrawalGenerator )   -d (generators.AgrawalGenerator -f 4) -w 50000 -p 250000 ) -w 50000 -p 250000 ) -w 50000 -p 250000)
+RTG
+-i 1000000 -f 1000000 -s (generators.RandomTreeGenerator -o 5 -u 5 -c 2 -d 5 -i 1 -r 1)
+RBF_m
+-i 1000000 -f 1000000 -s (generators.RandomRBFGeneratorDrift -c 5 -s .0001)
+RBF_f
+-i 1000000 -f 1000000 -s (generators.RandomRBFGeneratorDrift -c 5 -s .001)
+HYPER
+-i 1000000 -f 1000000 -s (generators.HyperplaneGenerator  -k 10 -t .001)
