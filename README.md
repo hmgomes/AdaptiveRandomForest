@@ -1,8 +1,12 @@
 # AdaptiveRandomForest
 Repository for the AdaptiveRandomForest (also known as ARF) algorithm implemented in MOA 2016-04
 
-The Adaptive Random Forest (ARF) algorithm is going to be available as an extension to MOA in the future. 
-Until that, you may use this repository to have access to its source code or to an executable MOA-2016-04 jar. 
+~The Adaptive Random Forest (ARF) algorithm is going to be available as an extension to MOA in the future.~
+~Until that, you may use this repository to have access to its source code or to an executable MOA-2016-04 jar.~
+The Adaptive Random Forest algorithm has been added to the MOA main code. 
+The code has been updated in here as well to make it clearer and aligned with the code in MOA. 
+The main change is that now ARF uses ChangeDetector abstract class, which allows more flexibility while selecting the drift and warning detection algorithms. 
+
 
 For more informations about MOA, check out the official website: 
 http://moa.cms.waikato.ac.nz
