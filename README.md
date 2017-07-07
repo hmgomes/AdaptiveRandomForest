@@ -20,7 +20,7 @@ If you are here, then you are probably looking for the implementations used in t
 * EvaluatePrequentialDelayedCV.java: Similar to EvaluatePrequentialDelayed.java, however it simulates Cross-validation. 
 
 ## How to execute it
-To test AdaptiveRandomForest in either delayed or immediate setting execute the moa-2016.04-ARF.jar. 
+To test AdaptiveRandomForest in either delayed or immediate setting execute the moa-ARF.jar (included in this repository). 
 You can copy and paste the following command in the interface (right click the configuration text edit and select "Enter configuration”).
 Sample command: 
 
