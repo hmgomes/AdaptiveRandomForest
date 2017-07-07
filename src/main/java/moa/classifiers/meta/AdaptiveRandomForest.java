@@ -1,21 +1,20 @@
 /*
  *    AdaptiveRandomForest.java
- *    Copyright (C) 2007 University of Waikato, Hamilton, New Zealand
- *    @author Heitor Murilo Gomes (heitor_murilo_gomes@yahoo.com.br)
+ * 
+ *    @author Heitor Murilo Gomes (heitor_murilo_gomes at yahoo dot com dot br)
  *
- *    This program is free software; you can redistribute it and/or modify
- *    it under the terms of the GNU General Public License as published by
- *    the Free Software Foundation; either version 3 of the License, or
- *    (at your option) any later version.
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
  *
- *    This program is distributed in the hope that it will be useful,
- *    but WITHOUT ANY WARRANTY; without even the implied warranty of
- *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *    GNU General Public License for more details.
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
- *    You should have received a copy of the GNU General Public License
- *    along with this program. If not, see <http://www.gnu.org/licenses/>.
- *    
+ *    Unless required by applicable law or agreed to in writing, software
+ *    distributed under the License is distributed on an "AS IS" BASIS,
+ *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *    See the License for the specific language governing permissions and
+ *    limitations under the License.
+ *
  */
 package moa.classifiers.meta;
 
@@ -35,13 +34,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 
-import moa.classifiers.core.driftdetection.ADWIN;
 import moa.classifiers.trees.ARFHoeffdingTree;
 import moa.evaluation.BasicClassificationPerformanceEvaluator;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import moa.classifiers.core.driftdetection.PageHinkleyDM;
+import moa.classifiers.core.driftdetection.ChangeDetector;
+
 
 /**
  * Adaptive Random Forest
@@ -49,10 +48,12 @@ import moa.classifiers.core.driftdetection.PageHinkleyDM;
  * <p>Adaptive Random Forest (ARF). The 3 most important aspects of this 
  * ensemble classifier are: (1) inducing diversity through resampling;
  * (2) inducing diversity through randomly selecting subsets of features for 
- * node splits (see moa.classifiers.trees.ARFHoeffdingTree.java); (3) drift 
- * detectors per base tree, which cause selective resets in response to drifts.</p>
+ * node splits (See moa.classifiers.trees.ARFHoeffdingTree.java); (3) drift 
+ * detectors per base tree, which cause selective resets in response to drifts. 
+ * It also allows training background trees, which start training if a warning
+ * is detected and replace the active tree if the warning escalates to a drift. </p>
  *
- * <p>See details in:<br /> Heitor Murilo Gomes, Albert Bifet, Jesse Read, 
+ * <p>See details in:<br> Heitor Murilo Gomes, Albert Bifet, Jesse Read, 
  * Jean Paul Barddal, Fabricio Enembreck, Bernhard Pfharinger, Geoff Holmes, 
  * Talel Abdessalem. Adaptive random forests for evolving data stream classification. 
  * In Machine Learning, DOI: 10.1007/s10994-017-5642-8, Springer, 2017.</p>
@@ -66,24 +67,28 @@ import moa.classifiers.core.driftdetection.PageHinkleyDM;
  * <li>-c : The size of features per split. -k corresponds to #features - k</li>
  * <li>-a : The lambda value for bagging (lambda=6 corresponds to levBag)</li>
  * <li>-j : Number of threads to be used for training</li>
- * <li>-z : Delta of Adwin change detection</li>
- * <li>-v : Delta of Adwin change detection for warnings (start training bkg learner)</li>
- * <li>-w : Whether to use prequential accuracy weighted vote</li>
- * <li>-u : Whether to use ADWIN drift detection or not, if disabled then background learner is disabled too</li>
- * <li>-q : Whether to use background learner or immediately reset learner that detected a drift.</li>
- * <li>-y : Whether to use pageHinkley instead of ADWIN for drift/warning detection.</li>
+ * <li>-x : Change detector for drifts and its parameters</li>
+ * <li>-p : Change detector for warnings (start training bkg learner)</li>
+ * <li>-w : Should use weighted voting?</li>
+ * <li>-u : Should use drift detection? If disabled then bkg learner is also disabled</li>
+ * <li>-q : Should use bkg learner? If disabled then reset tree immediately</li>
  * </ul>
  *
- * @author Heitor Murilo Gomes (heitor_murilo_gomes@yahoo.com.br)
+ * @author Heitor Murilo Gomes (heitor_murilo_gomes at yahoo dot com dot br)
  * @version $Revision: 1 $
  */
 public class AdaptiveRandomForest extends AbstractClassifier {
 
+    @Override
+    public String getPurposeString() {
+        return "Adaptive Random Forest algorithm for evolving data streams from Gomes et al.";
+    }
+    
     private static final long serialVersionUID = 1L;
 
     public ClassOption treeLearnerOption = new ClassOption("treeLearner", 'l',
             "Random Forest Tree.", ARFHoeffdingTree.class,
-            "moa.classifiers.trees.ARFHoeffdingTree");
+            "moa.classifiers.trees.ARFHoeffdingTree -e 2000000 -g 50 -c 0.01");
 
     public IntOption ensembleSizeOption = new IntOption("ensembleSize", 's',
         "The number of trees.", 10, 1, Integer.MAX_VALUE);
@@ -93,7 +98,7 @@ public class AdaptiveRandomForest extends AbstractClassifier {
                 + "4: #features * (k / 100), 5: #features - #features * (k / 100)", 2, 1, 5);
     
     public IntOption kFeaturesPerTreeSizeOption = new IntOption("kFeaturesPerTreeSize", 'c',
-        "Number of features allowed during each split. -k = #features - k", 2, Integer.MIN_VALUE, Integer.MAX_VALUE);
+        "Number of features allowed during each split. -k corresponds to #features - k", 2, Integer.MIN_VALUE, Integer.MAX_VALUE);
     
     public FloatOption lambdaOption = new FloatOption("lambda", 'a',
         "The lambda parameter for bagging.", 6.0, 1.0, Float.MAX_VALUE);
@@ -101,24 +106,20 @@ public class AdaptiveRandomForest extends AbstractClassifier {
     public IntOption numberOfJobsOption = new IntOption("numberOfJobs", 'j',
         "Total number of concurrent jobs used for processing (-1 = as much as possible, 0 = do not use multithreading)", 1, -1, Integer.MAX_VALUE);
     
-    public FloatOption deltaAdwinOption = new FloatOption("deltaAdwin", 'z',
-        "Delta of Adwin change detection", 0.00001, 0.0, 1.0);
-    
-    // It is very important that this is a greater value than deltaAdwinOption (detect changes). 
-    public FloatOption deltaAdwinWarningOption = new FloatOption("deltaAdwinWarning", 'v', 
-        "Delta of Adwin change detection for warnings (start training bkg learner).", 0.0001, 0.0, 1.0);
-    
-    public FlagOption disableWeightedVote = new FlagOption(
-        "disableWeightedVote", 'w', "Whether to use prequential accuracy weighted vote.");
-    
-    public FlagOption disableAdwinDriftDetectionOption = new FlagOption("disableAdwinDriftDetection", 'u',
-        "Whether to use ADWIN drift detection or not, if disabled then background learner is disabled too.");
+    public ClassOption driftDetectionMethodOption = new ClassOption("driftDetectionMethod", 'x',
+        "Change detector for drifts and its parameters", ChangeDetector.class, "ADWINChangeDetector -a 0.00001");
 
-    public FlagOption disableBackgroundLearnerOption = new FlagOption("disableBackgroundLearnerOption", 'q', 
-        "Whether to use background learner or immediatelly reset learner that detected a drift.");
+    public ClassOption warningDetectionMethodOption = new ClassOption("warningDetectionMethod", 'p',
+        "Change detector for warnings (start training bkg learner)", ChangeDetector.class, "ADWINChangeDetector -a 0.0001");
     
-    public FlagOption usePageHinkleyOption = new FlagOption("usePageHinkleyOption", 'y', 
-        "Whether to use pageHinkley instead of ADWIN for drift/warning detection.");
+    public FlagOption disableWeightedVote = new FlagOption("disableWeightedVote", 'w', 
+            "Should use weighted voting?");
+    
+    public FlagOption disableDriftDetectionOption = new FlagOption("disableDriftDetection", 'u',
+        "Should use drift detection? If disabled then bkg learner is also disabled");
+
+    public FlagOption disableBackgroundLearnerOption = new FlagOption("disableBackgroundLearner", 'q', 
+        "Should use bkg learner? If disabled then reset tree immediately.");
     
     protected static final int FEATURES_SQRT = 2;
     protected static final int FEATURES_SQRT_INV = 3;
@@ -140,17 +141,14 @@ public class AdaptiveRandomForest extends AbstractClassifier {
         this.instancesSeen = 0;
         this.evaluator = new BasicClassificationPerformanceEvaluator();
         int numberOfJobs;
-        if(this.numberOfJobsOption.getValue() == -1) {
+        if(this.numberOfJobsOption.getValue() == -1) 
             numberOfJobs = Runtime.getRuntime().availableProcessors();
-//            System.out.println("Available Processors = " + numberOfJobs);
-        }
         else 
             numberOfJobs = this.numberOfJobsOption.getValue();
         // SINGLE_THREAD and requesting for only 1 thread are equivalent. 
         // this.executor will be null and not used...
         if(numberOfJobs != AdaptiveRandomForest.SINGLE_THREAD && numberOfJobs != 1)
             this.executor = Executors.newFixedThreadPool(numberOfJobs);
-//        System.out.println("Number of threads for training = " + numberOfJobs);
     }
 
     @Override
@@ -215,12 +213,10 @@ public class AdaptiveRandomForest extends AbstractClassifier {
 
     @Override
     public void getModelDescription(StringBuilder arg0, int arg1) {
-        // TODO Auto-generated method stub
     }
 
     @Override
     protected Measurement[] getModelMeasurementsImpl() {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -276,40 +272,35 @@ public class AdaptiveRandomForest extends AbstractClassifier {
                 (BasicClassificationPerformanceEvaluator) classificationEvaluator.copy(), 
                 this.instancesSeen, 
                 ! this.disableBackgroundLearnerOption.isSet(),
-                ! this.disableAdwinDriftDetectionOption.isSet(), 
-                this.usePageHinkleyOption.isSet(),
-                this.deltaAdwinOption.getValue(), 
-                this.deltaAdwinWarningOption.getValue(), 
+                ! this.disableDriftDetectionOption.isSet(), 
+                driftDetectionMethodOption,
+                warningDetectionMethodOption,
                 false);
         }
     }
+    
     /**
-     * 
+     * Inner class that represents a single tree member of the forest. 
+     * It contains some analysis information, such as the numberOfDriftsDetected, 
      */
     protected final class ARFBaseLearner {
         public int indexOriginal;
         public long createdOn;
         public long lastDriftOn;
+        public long lastWarningOn;
         public ARFHoeffdingTree classifier;
         public boolean isBackgroundLearner;
         
-        // Drift detection
-        public ADWIN ADErrorDrift;
-        public ADWIN ADErrorWarning;
-//        public ADWINChangeDetector adwinDrift;
-//        public ADWINChangeDetector adwinWarning;
+        // The drift and warning object parameters. 
+        protected ClassOption driftOption;
+        protected ClassOption warningOption;
+        
+        // Drift and warning detection
+        protected ChangeDetector driftDetectionMethod;
+        protected ChangeDetector warningDetectionMethod;
         
         public boolean useBkgLearner;
         public boolean useDriftDetector;
-        public double deltaAdwinDrift;
-        public double deltaAdwinWarning;
-
-        // PageHinkley
-        public boolean usePageHinkley;
-        protected double pageHinkleyDriftDelta = 0.01;
-        protected double pageHinkleyWarningDelta = 0.005;
-        public PageHinkleyDM PageHinkleyDrift;
-        public PageHinkleyDM PageHinkleyWarning;
         
         // Bkg learner
         protected ARFBaseLearner bkgLearner;
@@ -319,67 +310,45 @@ public class AdaptiveRandomForest extends AbstractClassifier {
         protected int numberOfWarningsDetected;
 
         private void init(int indexOriginal, ARFHoeffdingTree instantiatedClassifier, BasicClassificationPerformanceEvaluator evaluatorInstantiated, 
-            long instancesSeen, boolean useBkgLearner, boolean useDriftDetector, boolean usePageHinkley, double deltaAdwinDrift, double deltaAdwinWarning, boolean isBackgroundLearner) {
+            long instancesSeen, boolean useBkgLearner, boolean useDriftDetector, ClassOption driftOption, ClassOption warningOption, boolean isBackgroundLearner) {
             this.indexOriginal = indexOriginal;
             this.createdOn = instancesSeen;
             this.lastDriftOn = 0;
+            this.lastWarningOn = 0;
+            
             this.classifier = instantiatedClassifier;
             this.evaluator = evaluatorInstantiated;
             this.useBkgLearner = useBkgLearner;
             this.useDriftDetector = useDriftDetector;
-            this.usePageHinkley = usePageHinkley;
-            this.deltaAdwinDrift = deltaAdwinDrift;
-            this.deltaAdwinWarning = deltaAdwinWarning;
+            
             this.numberOfDriftsDetected = 0;
             this.numberOfWarningsDetected = 0;
             this.isBackgroundLearner = isBackgroundLearner;
 
             if(this.useDriftDetector) {
-                if(this.usePageHinkley) {
-                    this.PageHinkleyDrift = new PageHinkleyDM();
-                    this.PageHinkleyDrift.deltaOption.setValue(this.pageHinkleyDriftDelta);
-                }
-                else {
-                    this.ADErrorDrift = new ADWIN(this.deltaAdwinDrift);
-                    // Version using ADWINChangeDetector
-    //                this.adwinDrift = new ADWINChangeDetector();
-    //                this.adwinDrift.deltaAdwinOption.setValue(this.deltaAdwinDrift);
-    //                this.adwinDrift.resetLearning();
-                }
+                this.driftOption = driftOption;
+                this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftOption)).copy();
             }
 
             // Init Drift Detector for Warning detection. 
             if(this.useBkgLearner) {
-                if(this.usePageHinkley) {
-                    this.PageHinkleyWarning = new PageHinkleyDM();
-                    this.PageHinkleyWarning.deltaOption.setValue(this.pageHinkleyWarningDelta);
-                }
-                else {
-                    this.ADErrorWarning = new ADWIN(this.deltaAdwinWarning);
-                    // Version using ADWINChangeDetector
-    //                this.adwinWarning = new ADWINChangeDetector();
-    //                this.adwinWarning.deltaAdwinOption.setValue(this.deltaAdwinWarning);
-    //                this.adwinWarning.resetLearning();
-                }
+                this.warningOption = warningOption;
+                this.warningDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.warningOption)).copy();
             }
         }
 
         public ARFBaseLearner(int indexOriginal, ARFHoeffdingTree instantiatedClassifier, BasicClassificationPerformanceEvaluator evaluatorInstantiated, 
-                    long instancesSeen, boolean useBkgLearner, boolean useDriftDetector, boolean usePageHinkley, double deltaAdwinDrift, double deltaAdwinWarning, boolean isBackgroundLearner) {
-            init(indexOriginal, instantiatedClassifier, evaluatorInstantiated, instancesSeen, useBkgLearner, useDriftDetector, usePageHinkley, deltaAdwinDrift, deltaAdwinWarning, isBackgroundLearner);
+                    long instancesSeen, boolean useBkgLearner, boolean useDriftDetector, ClassOption driftOption, ClassOption warningOption, boolean isBackgroundLearner) {
+            init(indexOriginal, instantiatedClassifier, evaluatorInstantiated, instancesSeen, useBkgLearner, useDriftDetector, driftOption, warningOption, isBackgroundLearner);
         }
 
         public void reset() {
             if(this.useBkgLearner && this.bkgLearner != null) {
                 this.classifier = this.bkgLearner.classifier;
                 
-                if(this.usePageHinkley) {
-                    this.PageHinkleyWarning = this.bkgLearner.PageHinkleyWarning;
-                }
-                else {
-                    this.ADErrorDrift = this.bkgLearner.ADErrorDrift;
-                    this.ADErrorWarning = this.bkgLearner.ADErrorWarning;
-                }
+                this.driftDetectionMethod = this.bkgLearner.driftDetectionMethod;
+                this.warningDetectionMethod = this.bkgLearner.warningDetectionMethod;
+                
                 this.evaluator = this.bkgLearner.evaluator;
                 this.createdOn = this.bkgLearner.createdOn;
                 this.bkgLearner = null;
@@ -387,99 +356,57 @@ public class AdaptiveRandomForest extends AbstractClassifier {
             else {
                 this.classifier.resetLearning();
                 this.createdOn = instancesSeen;
-                if(this.usePageHinkley) {
-                    this.PageHinkleyDrift = new PageHinkleyDM();
-                    this.PageHinkleyDrift.deltaOption.setValue(this.pageHinkleyDriftDelta);
-                }
-                else {
-                    this.ADErrorDrift = new ADWIN(this.deltaAdwinDrift);
-                }
+                this.driftDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.driftOption)).copy();
             }
             this.evaluator.reset();
         }
 
-        public void trainOnInstance(Instance instance, double weight, long instancesSeen) {            
+        public void trainOnInstance(Instance instance, double weight, long instancesSeen) {
             Instance weightedInstance = (Instance) instance.copy();
             weightedInstance.setWeight(instance.weight() * weight);
             this.classifier.trainOnInstance(weightedInstance);
             
-            if(this.bkgLearner != null) 
+            if(this.bkgLearner != null)
                 this.bkgLearner.classifier.trainOnInstance(instance);
             
-            boolean change = false, warning = false;
             // Should it use a drift detector? Also, is it a backgroundLearner? If so, then do not "incept" another one. 
             if(this.useDriftDetector && !this.isBackgroundLearner) {
                 boolean correctlyClassifies = this.classifier.correctlyClassifies(instance);
-                // Check for warning
+                // Check for warning only if useBkgLearner is active
                 if(this.useBkgLearner) {
-                    
-                    if(this.usePageHinkley) {
-                        // Warning PageHinkley
-                        this.PageHinkleyWarning.input(correctlyClassifies ? 0 : 1);
-                        if (this.PageHinkleyWarning.getChange()) {
-                            System.out.println(this.indexOriginal + " PH Warning " + instancesSeen);
-                            this.PageHinkleyWarning = new PageHinkleyDM();
-                            this.PageHinkleyWarning.deltaOption.setValue(this.pageHinkleyWarningDelta);
-                            
-                            this.numberOfWarningsDetected++;
-                            ARFHoeffdingTree bkgClassifier = (ARFHoeffdingTree) this.classifier.copy();
-                            bkgClassifier.resetLearning();
-    //                        System.out.println("ADErrorWarning " + instancesSeen + " estimation: " + this.ADErrorWarning.getEstimation());  
-                            BasicClassificationPerformanceEvaluator bkgEvaluator = (BasicClassificationPerformanceEvaluator) this.evaluator.copy();
-                            bkgEvaluator.reset();
-                            this.bkgLearner = new ARFBaseLearner(indexOriginal, bkgClassifier, bkgEvaluator, instancesSeen, 
-                                this.useBkgLearner, this.useDriftDetector, this.usePageHinkley, this.deltaAdwinDrift, this.deltaAdwinWarning, true);
-                        }
-                    }
-                    else {
-                        // Warning ADWIN
-                        double ErrEstimWarning = this.ADErrorWarning.getEstimation();
-                        if (this.ADErrorWarning.setInput(correctlyClassifies ? 0 : 1)) 
-                            if (this.ADErrorWarning.getEstimation() > ErrEstimWarning) 
-                                warning = true;
-                        if(warning) {
-                            this.numberOfWarningsDetected++;
-                            ARFHoeffdingTree bkgClassifier = (ARFHoeffdingTree) this.classifier.copy();
-                            bkgClassifier.resetLearning();
-    //                        System.out.println("ADErrorWarning " + instancesSeen + " estimation: " + this.ADErrorWarning.getEstimation());  
-                            BasicClassificationPerformanceEvaluator bkgEvaluator = (BasicClassificationPerformanceEvaluator) this.evaluator.copy();
-                            bkgEvaluator.reset();
-                            this.bkgLearner = new ARFBaseLearner(indexOriginal, bkgClassifier, bkgEvaluator, instancesSeen, 
-                                this.useBkgLearner, this.useDriftDetector, this.usePageHinkley, this.deltaAdwinDrift, this.deltaAdwinWarning, true);
-                            this.ADErrorWarning = new ADWIN(this.deltaAdwinDrift);
-                        }
+                    // Update the warning detection method
+                    this.warningDetectionMethod.input(correctlyClassifies ? 0 : 1);
+                    // Check if there was a change
+                    if(this.warningDetectionMethod.getChange()) {
+                        this.lastWarningOn = instancesSeen;
+                        this.numberOfWarningsDetected++;
+                        // Create a new bkgTree classifier
+                        ARFHoeffdingTree bkgClassifier = (ARFHoeffdingTree) this.classifier.copy();
+                        bkgClassifier.resetLearning();
+                        
+                        // Resets the evaluator
+                        BasicClassificationPerformanceEvaluator bkgEvaluator = (BasicClassificationPerformanceEvaluator) this.evaluator.copy();
+                        bkgEvaluator.reset();
+                        
+                        // Create a new bkgLearner object
+                        this.bkgLearner = new ARFBaseLearner(indexOriginal, bkgClassifier, bkgEvaluator, instancesSeen, 
+                            this.useBkgLearner, this.useDriftDetector, this.driftOption, this.warningOption, true);
+                        
+                        // Update the warning detection object for the current object 
+                        // (this effectively resets changes made to the object while it was still a bkg learner). 
+                        this.warningDetectionMethod = ((ChangeDetector) getPreparedClassOption(this.warningOption)).copy();
                     }
                 }
                 
                 /*********** drift detection ***********/
-                if(this.usePageHinkley) {
-                    // Use PageHinkley Drift
-                    this.PageHinkleyDrift.input(correctlyClassifies ? 0 : 1);
-                    if (this.PageHinkleyDrift.getChange()) {
-                        System.out.println(this.indexOriginal + " PH Drift " + instancesSeen);
-                        this.PageHinkleyDrift = new PageHinkleyDM();
-                        this.PageHinkleyDrift.deltaOption.setValue(this.pageHinkleyDriftDelta);
-                        
-                        this.lastDriftOn = instancesSeen;
-                        this.numberOfDriftsDetected++;
-                        this.reset();
-                    } 
-                }
-                else {
-                    // Use ADWIN Drift
-                    double ErrEstim = this.ADErrorDrift.getEstimation();
-                    if (this.ADErrorDrift.setInput(correctlyClassifies ? 0 : 1)) 
-                        if (this.ADErrorDrift.getEstimation() > ErrEstim) 
-                            change = true;
-
-                    if (change) {
-    //                    System.out.println("Change detected ADError at " + instancesSeen + " estimation: " + this.ADErrorDrift.getEstimation());
-                        this.lastDriftOn = instancesSeen;
-                        this.numberOfDriftsDetected++;
-                        if (this.ADErrorDrift.getEstimation() > 0.0) { 
-                            this.reset();
-                        }
-                    }
+                
+                // Update the DRIFT detection method
+                this.driftDetectionMethod.input(correctlyClassifies ? 0 : 1);
+                // Check if there was a change
+                if(this.driftDetectionMethod.getChange()) {
+                    this.lastDriftOn = instancesSeen;
+                    this.numberOfDriftsDetected++;
+                    this.reset();
                 }
             }
         }
@@ -490,6 +417,9 @@ public class AdaptiveRandomForest extends AbstractClassifier {
         }
     }
     
+    /***
+     * Inner class to assist with the multi-thread execution. 
+     */
     protected class TrainingRunnable implements Runnable, Callable<Integer> {
         final private ARFBaseLearner learner;
         final private Instance instance;
@@ -512,7 +442,6 @@ public class AdaptiveRandomForest extends AbstractClassifier {
         @Override
         public Integer call() throws Exception {
             run();
-//            throw new UnsupportedOperationException("Not supported yet."); 
             return 0;
         }
     }

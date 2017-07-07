@@ -1,5 +1,6 @@
 /*
- *    EvaluatePrequential.java
+ *    EvaluatePrequentialDelayed.java
+ *
  *    Copyright (C) 2007 University of Waikato, Hamilton, New Zealand
  *    @author Richard Kirkby (rkirkby@cs.waikato.ac.nz)
  *    @author Albert Bifet (abifet at cs dot waikato dot ac dot nz)
@@ -49,10 +50,15 @@ import moa.core.InstanceExample;
 import moa.core.Utils;
 
 /**
- * Task for evaluating a classifier on a delayed stream by testing then training with each example in sequence
- * given a delay k.
+ * Task for evaluating a classifier on a delayed stream by testing and only 
+ * training with the example after k other examples (delayed labeling).
  *
- * @author Heitor Murilo Gomes (hmgomes at ppgia dot pucpr dot br)
+ * <p>See details in:<br> Heitor Murilo Gomes, Albert Bifet, Jesse Read, 
+ * Jean Paul Barddal, Fabricio Enembreck, Bernhard Pfharinger, Geoff Holmes, 
+ * Talel Abdessalem. Adaptive random forests for evolving data stream classification. 
+ * In Machine Learning, DOI: 10.1007/s10994-017-5642-8, Springer, 2017.</p><br>
+ * 
+ * @author Heitor Murilo Gomes (heitor dot gomes at telecom-paristech dot fr)
  * @author Albert Bifet (abifet at cs dot waikato dot ac dot nz)
  * @version $Revision: 1 $
  */
@@ -60,7 +66,8 @@ public class EvaluatePrequentialDelayed extends MainTask {
 
     @Override
     public String getPurposeString() {
-        return "Evaluates a classifier on a stream by testing then training with each example in sequence.";
+        return "Evaluates a classifier on a delayed stream by testing and only"
+                + " training with the example after k other examples (delayed labeling).";
     }
 
     private static final long serialVersionUID = 1L;
@@ -121,10 +128,9 @@ public class EvaluatePrequentialDelayed extends MainTask {
 
     public FloatOption alphaOption = new FloatOption("alpha",
             'a', "Fading factor or exponential smoothing factor", .01);
-    //End New for prequential methods
 
+    // Buffer of instances to use for training. 
     protected LinkedList<Example> trainInstances;
-    protected LinkedList<Integer> idTracker;
     
     @Override
     public Class<?> getTaskResultType() {
@@ -140,7 +146,6 @@ public class EvaluatePrequentialDelayed extends MainTask {
                 "learning evaluation instances");
 
         this.trainInstances = new LinkedList<Example>();
-        this.idTracker = new LinkedList<Integer>();
         
         //New for prequential methods
         if (evaluator instanceof WindowClassificationPerformanceEvaluator) {
@@ -164,7 +169,6 @@ public class EvaluatePrequentialDelayed extends MainTask {
                 return learningCurve;
             }
         }
-        //End New for prequential methods
 
         learner.setModelContext(stream.getHeader());
         int maxInstances = this.instanceLimitOption.getValue();
@@ -212,44 +216,34 @@ public class EvaluatePrequentialDelayed extends MainTask {
         long lastEvaluateStartTime = evaluateStartTime;
         double RAMHours = 0.0;
         
-        
         while (stream.hasMoreInstances()
                 && ((maxInstances < 0) || (instancesProcessed < maxInstances))
                 && ((maxSeconds < 0) || (secondsElapsed < maxSeconds))) {
             
-//            this.processedInstances++;
             instancesProcessed++;
             Example currentInst = stream.nextInstance();
             
-//            System.out.print("Current ("+instancesProcessed+")");
             if(instancesProcessed <= this.initialWindowSizeOption.getValue()) {
                 if(this.trainOnInitialWindowOption.isSet()) {
-//                    System.out.print(",TrainInit");
                     learner.trainOnInstance(currentInst);
                 }
                 else if((this.initialWindowSizeOption.getValue() - instancesProcessed) < this.delayLengthOption.getValue()) {
                     this.trainInstances.addLast(currentInst);
-                    this.idTracker.addLast((int) instancesProcessed);
                 }
             }
             else {
                 this.trainInstances.addLast(currentInst);
-                this.idTracker.addLast((int) instancesProcessed);
-
-//                learner.trainOnInstance(trainInst);
 
                 if(this.delayLengthOption.getValue() < this.trainInstances.size()) {
                     if(this.trainInBatches.isSet()) {
                         // Do not train on the latest instance, otherwise
                         // it would train on k+1 instances
                         while(this.trainInstances.size() > 1) {
-//                            System.out.print(",Train("+this.idTracker.removeFirst()+")");
                             Example trainInst = this.trainInstances.removeFirst();
                             learner.trainOnInstance(trainInst);
                         }
                     }
                     else {
-//                        System.out.print(",Train("+this.idTracker.removeFirst()+")");
                         Example trainInst = this.trainInstances.removeFirst();
                         learner.trainOnInstance(trainInst);
                     }
@@ -260,7 +254,7 @@ public class EvaluatePrequentialDelayed extends MainTask {
                 Example testInst = new InstanceExample(testInstance);
                 testInstance.setMissing(testInstance.classAttribute());
                 testInstance.setClassValue(0.0);
-    //          
+          
                 double[] prediction = learner.getVotesForInstance(testInst);
     //          reinstate the testInstance as it is used in evaluator.addResult
                 testInstance = ((Instance) currentInst.getData()).copy();
@@ -272,22 +266,14 @@ public class EvaluatePrequentialDelayed extends MainTask {
                     outputPredictionResultStream.println(Utils.maxIndex(prediction) + "," + (
                      ((Instance) testInst.getData()).classIsMissing() == true ? " ? " : trueClass));
                 }
-                //evaluator.addClassificationAttempt(trueClass, prediction, testInst.weight());
                 evaluator.addResult(testInst, prediction);
-//                System.out.print(",Test("+instancesProcessed+")");
                 
                 if (instancesProcessed % this.sampleFrequencyOption.getValue() == 0
                         || stream.hasMoreInstances() == false) {
-//                    System.out.println("Start evaluating!");
                     long evaluateTime = TimingUtils.getNanoCPUTimeOfCurrentThread();
                     double time = TimingUtils.nanoTimeToSeconds(evaluateTime - evaluateStartTime);
                     double timeIncrement = TimingUtils.nanoTimeToSeconds(evaluateTime - lastEvaluateStartTime);
                     double RAMHoursIncrement = learner.measureByteSize() / (1024.0 * 1024.0 * 1024.0); //GBs
-//                    long evaluateTime = 1;
-//                    double time = 1;
-//                    double timeIncrement = 1;
-//                    double RAMHoursIncrement = 1;
-//                    System.out.println("After time and ramHours!");
                     RAMHoursIncrement *= (timeIncrement / 3600.0); //Hours
                     RAMHours += RAMHoursIncrement;
                     lastEvaluateStartTime = evaluateTime;
@@ -306,8 +292,6 @@ public class EvaluatePrequentialDelayed extends MainTask {
                                 RAMHours)
                             },
                             evaluator, learner));
-//                    System.out.println("\tMid of evaluating!");
-//                    System.out.println("After inserting entry");
                     if (immediateResultStream != null) {
                         if (firstDump) {
                             immediateResultStream.println(learningCurve.headerToString());
@@ -316,7 +300,6 @@ public class EvaluatePrequentialDelayed extends MainTask {
                         immediateResultStream.println(learningCurve.entryToString(learningCurve.numEntries() - 1));
                         immediateResultStream.flush();
                     }
-//                    System.out.println("Finished evaluating");
                 }
                 if (instancesProcessed % INSTANCES_BETWEEN_MONITOR_UPDATES == 0) {
                     if (monitor.taskShouldAbort()) {
@@ -340,7 +323,6 @@ public class EvaluatePrequentialDelayed extends MainTask {
                             - evaluateStartTime);
                 }
             }
-//            System.out.println();
         }
         if (immediateResultStream != null) {
             immediateResultStream.close();

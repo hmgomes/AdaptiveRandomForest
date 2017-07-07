@@ -1,5 +1,6 @@
 /*
- *    EvaluatePrequential.java
+ *    EvaluatePrequentialDelayedCV.java
+ *
  *    Copyright (C) 2007 University of Waikato, Hamilton, New Zealand
  *    @author Richard Kirkby (rkirkby@cs.waikato.ac.nz)
  *    @author Albert Bifet (abifet at cs dot waikato dot ac dot nz)
@@ -21,10 +22,8 @@
 package moa.tasks;
 
 import com.github.javacliparser.FileOption;
-import com.github.javacliparser.FlagOption;
 import com.github.javacliparser.IntOption;
 import com.github.javacliparser.MultiChoiceOption;
-import com.yahoo.labs.samoa.instances.Instance;
 import moa.classifiers.Classifier;
 import moa.core.*;
 import moa.evaluation.*;
@@ -39,25 +38,31 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
-import java.util.Vector;
 
 /**
- * Task for prequential cross-validation evaluation of a classifier on a stream by testing then training with each
- * example in sequence and doing cross-validation at the same time.
- *
- * <p>Albert Bifet, Gianmarco De Francisci Morales, Jesse Read, Geoff Holmes, Bernhard Pfahringer: Efficient Online
+ * Task for delayed cross-validation evaluation of a classifier on a 
+ * stream by testing and only training with the example after the arrival of 
+ * other k examples (delayed labeling). 
+ * 
+ * <p>See details in:<br> Heitor Murilo Gomes, Albert Bifet, Jesse Read, 
+ * Jean Paul Barddal, Fabricio Enembreck, Bernhard Pfharinger, Geoff Holmes, 
+ * Talel Abdessalem. Adaptive random forests for evolving data stream classification. 
+ * In Machine Learning, DOI: 10.1007/s10994-017-5642-8, Springer, 2017.</p><br> 
+ * <p>Cross-validation for data streams was originally proposed in:<br>
+ * Albert Bifet, Gianmarco De Francisci Morales, Jesse Read, Geoff Holmes, Bernhard Pfahringer: Efficient Online
  * Evaluation of Big Data Stream Classifiers. KDD 2015: 59-68</p>
  *
  * @author Richard Kirkby (rkirkby@cs.waikato.ac.nz)
  * @author Albert Bifet (abifet at cs dot waikato dot ac dot nz)
+ * @author Heitor Murilo Gomes (heitor dot gomes at telecom-paristech dot fr)
  * @version $Revision: 7 $
  */
 public class EvaluatePrequentialDelayedCV extends MainTask {
 
     @Override
     public String getPurposeString() {
-        return "Evaluates a classifier on a stream by doing prequential evaluation (testing then training with each" +
-                " example in sequence) and doing cross-validation.";
+        return "Evaluates a classifier using delayed cross-validation evaluation "
+                + "by testing and only training with the example after the arrival of other k examples (delayed labeling) ";
     }
 
     private static final long serialVersionUID = 1L;
@@ -77,17 +82,7 @@ public class EvaluatePrequentialDelayedCV extends MainTask {
         public IntOption delayLengthOption = new IntOption("delay", 'k',
             "Number of instances before test instance is used for training",
             1000, 1, Integer.MAX_VALUE);
-    
-//    public IntOption initialWindowSizeOption = new IntOption("initialTrainingWindow", 'p',
-//        "Number of instances used for training in the beginning of the stream.",
-//        1000, 0, Integer.MAX_VALUE);
-    
-//    public FlagOption trainOnInitialWindowOption = new FlagOption("trainOnInitialWindow", 'm', 
-//            "Whether to train or not using instances in the initial window.");
-    
-//    public FlagOption trainInBatches = new FlagOption("trainInBatches", 'b', 
-//        "If set training will not be interleaved with testing. ");
-//    
+     
     public IntOption instanceLimitOption = new IntOption("instanceLimit", 'i',
             "Maximum number of instances to test/train on  (-1 = no limit).",
             100000000, -1, Integer.MAX_VALUE);
@@ -123,8 +118,10 @@ public class EvaluatePrequentialDelayedCV extends MainTask {
     public IntOption randomSeedOption = new IntOption("randomSeed", 'r',
             "Seed for random behaviour of the task.", 1);
 
+    // Buffer of instances to use for training. 
+    // Note: It is a list of lists because it stores instances per learner, e.g.
+    // CV of 10, would be 10 lists of buffered instances for delayed training. 
     protected LinkedList<LinkedList<Example>> trainInstances;
-//    protected LinkedList<LinkedList<Integer>> idTracker;
     
     @Override
     public Class<?> getTaskResultType() {
@@ -158,11 +155,9 @@ public class EvaluatePrequentialDelayedCV extends MainTask {
         monitor.setCurrentActivity("Evaluating learner...", -1.0);
 
         this.trainInstances = new LinkedList<LinkedList<Example>>();
-//        this.idTracker = new LinkedList<LinkedList<Integer>>();
         
         for(int i = 0; i < learners.length; i++) {
             this.trainInstances.add(new LinkedList<Example>());
-//            this.idTracker.add(new LinkedList<Integer>());
         }
         File dumpFile = this.dumpFileOption.getFile();
         PrintStream immediateResultStream = null;
@@ -193,16 +188,13 @@ public class EvaluatePrequentialDelayedCV extends MainTask {
             
             
             Example trainInst = stream.nextInstance();
-            Example testInst = (Example) trainInst; //.copy();
-            //testInst.setClassMissing();
+            Example testInst = (Example) trainInst;
             
             instancesProcessed++;
             for (int i = 0; i < learners.length; i++) {
-//                System.out.print("Current ("+instancesProcessed+") - Classifier = " + i);
                 
                 double[] prediction = learners[i].getVotesForInstance(testInst);
                 evaluators[i].addResult(testInst, prediction);
-//                System.out.print(",Test("+instancesProcessed+")");
                 
                 int k = 1;
                 switch (this.validationMethodologyOption.getChosenIndex()) {
@@ -217,27 +209,13 @@ public class EvaluatePrequentialDelayedCV extends MainTask {
                         break;
                 }
                 if (k > 0) {
-//                    System.out.print(",Store");
                     this.trainInstances.get(i).addLast(trainInst);
-//                    this.idTracker.get(i).addLast((int) instancesProcessed);
                 }
-//                + " Trained? " + (k == 1 ? "yes" : "no")
-                int delay = this.delayLengthOption.getValue();
-                int sizeTrainInstances = this.trainInstances.get(i).size();
                 if(this.delayLengthOption.getValue() < this.trainInstances.get(i).size()) {
-
-//                    System.out.print(",Train("+this.idTracker.get(i).removeFirst()+")");
                     Example trainInstI = this.trainInstances.get(i).removeFirst();
                     learners[i].trainOnInstance(trainInstI);
-//                    }
-//                    else {
-//                        System.out.print(",Train(!): no instance");
-//                    }
                 }
-//                System.out.println("");
             }
-//            System.out.println("---------------------");
-            
             
             if (instancesProcessed % this.sampleFrequencyOption.getValue() == 0
                     || stream.hasMoreInstances() == false) {
