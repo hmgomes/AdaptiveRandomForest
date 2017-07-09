@@ -28,10 +28,10 @@ To test AdaptiveRandomForest in either delayed or immediate setting execute the 
 You can copy and paste the following command in the interface (right click the configuration text edit and select "Enter configuration”).
 Sample command: 
 
-`EvaluatePrequentialDelayedCV -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -e 2000000 -g 50 -c 0.01) -s 100 -o 2 -a 6.0 -z 1.0E-5 -v 1.0E-4) -s (ArffFileStream -f elecNormNew.arff) -e BasicClassificationPerformanceEvaluator -f 100000000`
+`EvaluatePrequentialDelayedCV -l (meta.AdaptiveRandomForest -s 100) -s ArffFileStream -e BasicClassificationPerformanceEvaluator -f 100000000`
 
 Explanation: this command executes a 10 fold cross-validation delayed prequential 
-evaluation on ARF with 100 classifiers (-s 100) using m = sqrt(total features) + 1 (-o 2) 
+evaluation on ARF with 100 classifiers (-s 100) using m = sqrt(total features) + 1 (default option, see parameter -o for others) 
 on the ELEC dataset (-f elecNormNew.arff). 
 **Make sure to extract the elecNormNew.arff dataset, and setting -f to its location, before executing the command.**
 
