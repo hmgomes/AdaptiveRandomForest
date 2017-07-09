@@ -3,10 +3,10 @@ Repository for the AdaptiveRandomForest (also known as ARF) algorithm implemente
 
 ~The Adaptive Random Forest (ARF) algorithm is going to be available as an extension to MOA in the future.~
 ~Until that, you may use this repository to have access to its source code or to an executable MOA-2016-04 jar.~
-The Adaptive Random Forest algorithm has been added to the MOA main code. 
+
+**The Adaptive Random Forest algorithm has been added to the MOA main code as of July 2017.** 
 The code has been updated in here as well to make it clearer and aligned with the code in MOA. 
 The main change is that now ARF uses ChangeDetector abstract class, which allows more flexibility while selecting the drift and warning detection algorithms. 
-
 
 For more informations about MOA, check out the official website: 
 http://moa.cms.waikato.ac.nz
@@ -28,10 +28,10 @@ To test AdaptiveRandomForest in either delayed or immediate setting execute the 
 You can copy and paste the following command in the interface (right click the configuration text edit and select "Enter configuration”).
 Sample command: 
 
-`EvaluatePrequentialDelayedCV -l (meta.AdaptiveRandomForest -l (ARFHoeffdingTree -e 2000000 -g 50 -c 0.01) -s 100 -o 2 -a 6.0 -z 1.0E-5 -v 1.0E-4) -s (ArffFileStream -f elecNormNew.arff) -e BasicClassificationPerformanceEvaluator -f 100000000`
+`EvaluatePrequentialDelayedCV -l (meta.AdaptiveRandomForest -s 100) -s ArffFileStream -e BasicClassificationPerformanceEvaluator -f 100000000`
 
 Explanation: this command executes a 10 fold cross-validation delayed prequential 
-evaluation on ARF with 100 classifiers (-s 100) using m = sqrt(total features) + 1 (-o 2) 
+evaluation on ARF with 100 classifiers (-s 100) using m = sqrt(total features) + 1 (default option, see parameter -o for others) 
 on the ELEC dataset (-f elecNormNew.arff). 
 **Make sure to extract the elecNormNew.arff dataset, and setting -f to its location, before executing the command.**
 
