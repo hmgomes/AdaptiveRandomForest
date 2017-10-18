@@ -52,6 +52,7 @@ public class GiniSplitCriterion extends AbstractOptionHandler implements
             gini += (distWeights[i] / totalWeight)
                     * computeGini(postSplitDists[i], distWeights[i]);
         }
+        System.out.println("Gini = " + gini);
         return 1.0 - gini;
     }
 
