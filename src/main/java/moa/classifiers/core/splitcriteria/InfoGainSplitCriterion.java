@@ -50,8 +50,17 @@ public class InfoGainSplitCriterion extends AbstractOptionHandler implements
         if (numSubsetsGreaterThanFrac(postSplitDists, this.minBranchFracOption.getValue()) < 2) {
             return Double.NEGATIVE_INFINITY;
         }
-        return computeEntropy(preSplitDist) - computeEntropy(postSplitDists);
+        double preSplitEntropy = computeEntropy(preSplitDist);
+        double conditionalEntropy = computeEntropy(postSplitDists);
+        double infoGain = preSplitEntropy - conditionalEntropy;
+        if(infoGain < 0){
+            //let's force a debug here
+            infoGain = 0.0;
+            int x = 1;
+        }
+        return infoGain;
     }
+
 
     @Override
     public double getRangeOfMerit(double[] preSplitDist) {
